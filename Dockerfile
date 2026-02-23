@@ -1,31 +1,26 @@
-FROM runpod/base:0.6.2-cuda12.4.1
+FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04
 
+ENV DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-c"]
 WORKDIR /
 
-# Update and upgrade the system packages (Worker Template)
+# System packages: Python 3.12, FFmpeg 6.1, utilities
 RUN apt-get update && \
-    apt-get upgrade -y && \
-    apt-get install -y ffmpeg wget git libcudnn8 libcudnn8-dev && \
+    apt-get install -y --no-install-recommends \
+        python3 python3-pip python3-venv python3-dev \
+        ffmpeg wget git && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# In your Dockerfile
-# Create cache directory
-RUN mkdir -p /cache/models
-
-# Create torch cache directory for VAD model
-RUN mkdir -p /root/.cache/torch
+# Create cache directories
+RUN mkdir -p /cache/models /root/.cache/torch
 
 # Copy only requirements file first to leverage Docker cache
 COPY builder/requirements.txt /builder/requirements.txt
 
-# Install Python dependencies (Worker Template)
-#RUN python3 -m pip install --upgrade pip hf_transfer && \
-#    python3 -m pip install -r /builder/requirements.txt
-RUN python3 -m pip install --upgrade pip \
- && python3 -m pip install hf_transfer==0.1.4 \ 
- && python3 -m pip install --no-cache-dir -r /builder/requirements.txt
+# Install Python dependencies
+RUN python3 -m pip install --break-system-packages hf_transfer \
+ && python3 -m pip install --break-system-packages --no-cache-dir -r /builder/requirements.txt
 
 # Copy the local VAD model to the expected location
 COPY models/whisperx-vad-segmentation.bin /root/.cache/torch/whisperx-vad-segmentation.bin
@@ -36,7 +31,7 @@ COPY builder /builder
 # Download Faster Whisper Models
 RUN chmod +x /builder/download_models.sh
 RUN --mount=type=secret,id=hf_token /builder/download_models.sh
-#RUN pip install azure-storage-blob
+
 # Copy source code
 COPY src .
 

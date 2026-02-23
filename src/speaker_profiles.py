@@ -2,13 +2,10 @@
 # speaker_profiles.py  ---------------------------------------------
 import os, tempfile, requests, numpy as np, torch, librosa
 from pyannote.audio import Inference
+from scipy.spatial.distance import cdist
 
 _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-_EMBED  = Inference(
-    "pyannote/embedding",
-    device=_DEVICE,
-    use_auth_token=os.getenv("HF_TOKEN")
-)
+_EMBED = Inference("pyannote/embedding", device=_DEVICE)
 
 _CACHE = {}                                   # name → 512-D vector
 
@@ -37,8 +34,12 @@ def load_embeddings(profiles):
             tmp.write(requests.get(url, timeout=30).content)
             tmp.flush()
             wav, _   = librosa.load(tmp.name, sr=16_000, mono=True)
-            vec      = _EMBED(torch.tensor(wav).unsqueeze(0)).cpu().numpy().flatten()
-            vec      = _l2(vec)
+            raw = _EMBED({"waveform": torch.tensor(wav).unsqueeze(0), "sample_rate": 16_000})
+            if hasattr(raw, "data"):
+                vec = raw.data.mean(axis=0)
+            else:
+                vec = raw.cpu().numpy().flatten()
+            vec = _l2(vec)
             _CACHE[name] = vec
             out[name]   = vec
     return out

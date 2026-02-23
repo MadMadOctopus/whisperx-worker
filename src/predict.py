@@ -7,6 +7,7 @@ except ImportError:                          # pragma: no cover
 from pydub import AudioSegment
 from typing import Any
 from whisperx.audio import N_SAMPLES, log_mel_spectrogram
+from whisperx.diarize import DiarizationPipeline
 from scipy.spatial.distance import cosine
 import gc
 import math
@@ -57,18 +58,13 @@ class Output(BaseModel):
 
 class Predictor(BasePredictor):
     def setup(self):
-        source_folder = './models/vad'
-        destination_folder = '../root/.cache/torch'
-        file_name = 'whisperx-vad-segmentation.bin'
-
-        os.makedirs(destination_folder, exist_ok=True)
-
-        source_file_path = os.path.join(source_folder, file_name)
-        if os.path.exists(source_file_path):
-            destination_file_path = os.path.join(destination_folder, file_name)
-
-            if not os.path.exists(destination_file_path):
-                shutil.copy(source_file_path, destination_folder)
+        # Ensure VAD model is in torch cache (fallback for whisperx)
+        vad_cache = '/root/.cache/torch/whisperx-vad-segmentation.bin'
+        if not os.path.exists(vad_cache):
+            bundled = './models/vad/whisperx-vad-segmentation.bin'
+            if os.path.exists(bundled):
+                os.makedirs('/root/.cache/torch', exist_ok=True)
+                shutil.copy(bundled, vad_cache)
 
     def predict(
             self,
@@ -155,7 +151,7 @@ class Predictor(BasePredictor):
                 segments_starts = distribute_segments_equally(audio_duration, segments_duration_ms,
                                                               language_detection_max_tries)
 
-                print("Detecting languages on segments starting at " + ', '.join(map(str, segments_starts)))
+                logger.info("Detecting languages on segments starting at " + ', '.join(map(str, segments_starts)))
 
                 detected_language_details = detect_language(audio_file, segments_starts, language_detection_min_prob,
                                                             language_detection_max_tries, asr_options, vad_options)
@@ -164,7 +160,7 @@ class Predictor(BasePredictor):
                 detected_language_prob = detected_language_details["probability"]
                 detected_language_iterations = detected_language_details["iterations"]
 
-                print(f"Detected language {detected_language_code} ({detected_language_prob:.2f}) after "
+                logger.info(f"Detected language {detected_language_code} ({detected_language_prob:.2f}) after "
                       f"{detected_language_iterations} iterations.")
 
                 language = detected_language_details["language"]
@@ -203,7 +199,7 @@ class Predictor(BasePredictor):
                 if detected_language in whisperx.alignment.DEFAULT_ALIGN_MODELS_TORCH or detected_language in whisperx.alignment.DEFAULT_ALIGN_MODELS_HF:
                     result = align(audio, result, debug)
                 else:
-                    print(f"Cannot align output as language {detected_language} is not supported for alignment")
+                    logger.warning(f"Cannot align output as language {detected_language} is not supported for alignment")
 
             if diarization:
                 result = diarize(audio, result, debug, huggingface_access_token, min_speakers, max_speakers)
@@ -242,7 +238,7 @@ def detect_language(full_audio_file_path, segments_starts, language_detection_mi
     language_token, language_probability = results[0][0]
     language = language_token[2:-2]
 
-    print(f"Iteration {iteration} - Detected language: {language} ({language_probability:.2f})")
+    logger.info(f"Iteration {iteration} - Detected language: {language} ({language_probability:.2f})")
 
     audio_segment_file_path.unlink()
 
@@ -323,8 +319,11 @@ def align(audio, result, debug):
 def diarize(audio, result, debug, huggingface_access_token, min_speakers, max_speakers):
     start_time = time.time_ns() / 1e6
 
-    diarize_model = whisperx.DiarizationPipeline(model_name='pyannote/speaker-diarization@2.1',
-                                                 use_auth_token=huggingface_access_token, device=device)
+    diarize_model = DiarizationPipeline(
+        model_name='pyannote/speaker-diarization-community-1',
+        token=huggingface_access_token,
+        device=device,
+    )
     diarize_segments = diarize_model(audio, min_speakers=min_speakers, max_speakers=max_speakers)
 
     result = whisperx.assign_word_speakers(diarize_segments, result)

@@ -1,30 +1,32 @@
 import os
+import sys
+import tempfile
+import logging
+from collections import defaultdict
+from datetime import datetime
+
 import torch
 import librosa
 import numpy as np
-import tempfile
 import requests
-from collections import defaultdict
-import torch
-import librosa
 from pyannote.audio import Inference
-from scipy.spatial.distance import cosine
-import logging
-import librosa
-import torch, numpy as np
-from speechbrain.pretrained import EncoderClassifier
+from pyannote.core import SlidingWindowFeature
+from scipy.spatial.distance import cosine, cdist
+from dotenv import load_dotenv, find_dotenv
+
+try:
+    from speechbrain.inference.classifiers import EncoderClassifier
+except ImportError:
+    from speechbrain.pretrained import EncoderClassifier
 # -----------------------------------------------------------------
 # Load the pyannote embedding model once globally
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 EMBED_MODEL = Inference("pyannote/embedding", device=DEVICE)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# at top of rp_handler.py (or speaker_processing.py)
-from dotenv import load_dotenv, find_dotenv
-import os
 # find and load your .env file
 load_dotenv(find_dotenv())
-HF_TOKEN = os.getenv("HF_TOKEN") 
+HF_TOKEN = os.getenv("HF_TOKEN")
 
 ecapa = EncoderClassifier.from_hparams(
     source="speechbrain/spkrec-ecapa-voxceleb",
@@ -60,7 +62,6 @@ def to_numpy(arr) -> np.ndarray:
     if torch.is_tensor(arr):                 # old style (should not happen)
         return arr.detach().cpu().numpy().flatten()
     # SlidingWindowFeature → .data is an np.ndarray
-    from pyannote.core import SlidingWindowFeature
     if isinstance(arr, SlidingWindowFeature):
         return arr.data.flatten()
     raise TypeError(f"Unsupported embedding type: {type(arr)}")
@@ -71,7 +72,6 @@ logger = logging.getLogger("speaker_processing")
 logger.setLevel(logging.DEBUG)
 if not logger.handlers:
     # Only add handlers if none exist (to avoid duplicates)
-    import sys
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.DEBUG)
     formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
@@ -91,9 +91,6 @@ def _to_numpy_flat(emb):
         - pyannote.core.SlidingWindowFeature
         - any object with a .data attribute that is an np.ndarray
     """
-    import torch, numpy as np
-    from pyannote.core import SlidingWindowFeature
-
     if isinstance(emb, torch.Tensor):
         return emb.detach().cpu().numpy().flatten()
 
@@ -108,19 +105,7 @@ def _to_numpy_flat(emb):
     raise TypeError(f"Unsupported embedding type: {type(emb)}")
 
 
-def load_known_speakers_from_samples(speaker_samples,  huggingface_access_token=None):
-    # Use the passed token, environment variable, or fallback
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    try:
-        # First try with minimal logging to use cached model
-        model = Inference("pyannote/embedding", use_auth_token=huggingface_access_token, device=device)
-        logger.debug("Successfully loaded pyannote embedding model")
-    except Exception as e:
-        logger.error(f"Failed to load pyannote embedding model: {e}", exc_info=True)
-        return {}
-    
+def load_known_speakers_from_samples(speaker_samples, huggingface_access_token=None):
     """
     For each sample in speaker_samples (list of dicts with 'url' and optional 'name' and 'file_path'),
     download the file if necessary, then compute and return a dict mapping sample names to embeddings.
@@ -131,7 +116,7 @@ def load_known_speakers_from_samples(speaker_samples,  huggingface_access_token=
     known_embeddings = {}
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     try:
-        model = Inference("pyannote/embedding", use_auth_token=huggingface_access_token, device=device)
+        model = Inference("pyannote/embedding", device=device)
     except Exception as e:
         logger.error(f"Failed to load pyannote embedding model: {e}", exc_info=True)
         return {}
@@ -176,11 +161,7 @@ def load_known_speakers_from_samples(speaker_samples,  huggingface_access_token=
                 continue
         else:
             logger.error(f"Skipping sample '{name}': no file_path or URL provided.")
-            try:
-                waveform, _ = librosa.load(filepath, sr=16000, mono=True)
-            except Exception as e:
-                logger.error(f"Failed to load audio file {filepath}: {e}", exc_info=True)
-                continue
+            continue
 
         # Process the file: load audio and compute embedding.
         try:
@@ -216,8 +197,6 @@ def load_known_speakers_from_samples(speaker_samples,  huggingface_access_token=
 
 
 def identify_speaker(segment_embedding, known_embeddings, threshold=0.1):
-    import numpy as np
-
     # Ensure 1-D numpy arrays
     if isinstance(segment_embedding, np.ndarray):
         segment_embedding = segment_embedding.ravel()
@@ -236,20 +215,7 @@ def identify_speaker(segment_embedding, known_embeddings, threshold=0.1):
             best_similarity, best_match = score, speaker
 
     return (best_match, best_similarity) if best_similarity >= threshold else ("Unknown", best_similarity)
-    """
-    Compare a segment embedding against known speaker embeddings.
-    Returns the best matching speaker and similarity score.
-    If no match exceeds the threshold, returns "Unknown" and the best similarity.
-    """
 
-
-import torch
-import librosa
-import numpy as np
-from collections import defaultdict
-from datetime import datetime
-from pyannote.audio import Inference
-from pyannote.core import SlidingWindowFeature
 
 def process_diarized_output(
     output: dict,
@@ -274,7 +240,7 @@ def process_diarized_output(
     }
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    embedder = Inference("pyannote/embedding", use_auth_token=huggingface_access_token, device=device)
+    embedder = Inference("pyannote/embedding", device=device)
 
     segments = output.get("segments", [])
     if not segments:
@@ -304,26 +270,6 @@ def process_diarized_output(
             "embedding": emb.tolist()
         })
 
-    # 2) build cluster centroids
-    # clusters: dict[str, list[np.ndarray]] = defaultdict(list)
-    # for seg in segments:
-    #     clusters[seg["speaker"]].append(seg["__embed__"])
-
-    # centroids = {
-    #     lbl: np.mean(mats, axis=0) / np.linalg.norm(np.mean(mats, axis=0))
-    #     for lbl, mats in clusters.items() if mats
-    # }
-# def process_diarized_output(
-    
-    # 2) build cluster centroids
-    clusters: dict[str, list[np.ndarray]] = defaultdict(list)
-    for seg in segments:
-        clusters[seg["speaker"]].append(seg["__embed__"])
-
-    centroids = {
-        lbl: np.mean(mats, axis=0) / np.linalg.norm(np.mean(mats, axis=0))
-       for lbl, mats in clusters.items() if mats
-    }
     # 2) build cluster centroids (only on uniform‑length embeddings)
     clusters: dict[str, list[np.ndarray]] = defaultdict(list)
     for seg in segments:
@@ -372,7 +318,7 @@ def process_diarized_output(
 
     # 3) cleanup temporary embeddings and ensure JSON-safe types
     for seg in segments:
-        # seg.pop("__embed__", None)
+        seg.pop("__embed__", None)
         seg["start"] = float(seg["start"])
         seg["end"] = float(seg["end"])
         seg.setdefault("similarity", None)
@@ -380,17 +326,11 @@ def process_diarized_output(
     if return_logs:
         return output, log_data
     else:
-        return output, log_data
+        return output, None
 
 
 
 ##ALTERNATE SET_UP
-
-
-import torch, librosa, numpy as np
-from pyannote.audio import Inference
-from scipy.spatial.distance import cdist
-
 
 
 def embed_waveform(wav: np.ndarray, sr: int = 16000) -> np.ndarray:
