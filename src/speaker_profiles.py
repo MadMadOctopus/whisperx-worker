@@ -1,16 +1,25 @@
-# speaker_profiles.py
 # speaker_profiles.py  ---------------------------------------------
 import os, tempfile, requests, numpy as np, torch, librosa
-from pyannote.audio import Inference
 from scipy.spatial.distance import cdist
 
 _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-_EMBED = Inference("pyannote/embedding", device=_DEVICE)
+_EMBED = None  # lazy-loaded
+_CACHE = {}    # name → 512-D vector
 
-_CACHE = {}                                   # name → 512-D vector
+
+def _get_embed():
+    """Return (and cache) the pyannote embedding Inference model."""
+    global _EMBED
+    if _EMBED is None:
+        from pyannote.audio import Model, Inference
+        hf_token = os.environ.get("HF_TOKEN")
+        raw_model = Model.from_pretrained("pyannote/embedding", use_auth_token=hf_token)
+        _EMBED = Inference(raw_model, device=_DEVICE)
+    return _EMBED
+
 
 # ---------------------------------------------------------------------
-# 1)  Download profile audio (once)  → 128-D embedding  → cache
+# 1)  Download profile audio (once)  → 512-D embedding  → cache
 # ---------------------------------------------------------------------
 
 
@@ -34,7 +43,7 @@ def load_embeddings(profiles):
             tmp.write(requests.get(url, timeout=30).content)
             tmp.flush()
             wav, _   = librosa.load(tmp.name, sr=16_000, mono=True)
-            raw = _EMBED({"waveform": torch.tensor(wav).unsqueeze(0), "sample_rate": 16_000})
+            raw = _get_embed()({"waveform": torch.tensor(wav).unsqueeze(0), "sample_rate": 16_000})
             if hasattr(raw, "data"):
                 vec = raw.data.mean(axis=0)
             else:
