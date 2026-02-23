@@ -4,32 +4,39 @@
   "type": "serverless",
   "category": "audio",
   "iconUrl": "https://blog.madiator.com/pictures/favicon.png",
-  "tags": ["speech-to-text", "transcription", "whisper", "diarization", "audio", "speaker identification"],
   "config": {
     "runsOn": "GPU",
     "containerDiskInGb": 30,
+    "gpuCount": 1,
+    "gpuIds": "AMPERE_16,AMPERE_24,ADA_24",
+    "env": [
+      {
+        "key": "HF_TOKEN",
+        "input": {
+          "name": "Hugging Face Token",
+          "type": "string",
+          "description": "Hugging Face access token, required for speaker diarization models",
+          "default": ""
+        }
+      }
+    ],
     "presets": [
       {
         "name": "Basic Transcription",
-        "description": "Automatic speech transcription with language detection"
+        "defaults": {}
       },
       {
         "name": "Transcription with Alignment",
-        "description": "Transcription with word-level timestamp alignment"
+        "defaults": {}
       },
       {
         "name": "Transcription with Diarization",
-        "description": "Full transcription with speaker identification"
+        "defaults": {}
       },
       {
         "name": "Speaker Identification",
-        "description": "Selective speaker identification for audio files"
+        "defaults": {}
       }
     ]
-  },
-  "recommended": {
-    "gpu": "NVIDIA RTX A4000 or better",
-    "memory": 16,
-    "storage": 30
   }
 }
