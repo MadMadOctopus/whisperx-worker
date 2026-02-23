@@ -7,7 +7,6 @@ except ImportError:                          # pragma: no cover
 from pydub import AudioSegment
 from typing import Any
 from whisperx.audio import N_SAMPLES, log_mel_spectrogram
-from whisperx.diarize import DiarizationPipeline
 from scipy.spatial.distance import cosine
 import gc
 import math
@@ -319,6 +318,7 @@ def align(audio, result, debug):
 def diarize(audio, result, debug, huggingface_access_token, min_speakers, max_speakers):
     start_time = time.time_ns() / 1e6
 
+    from whisperx.diarize import DiarizationPipeline
     diarize_model = DiarizationPipeline(
         model_name='pyannote/speaker-diarization-community-1',
         token=huggingface_access_token,

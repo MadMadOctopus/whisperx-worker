@@ -9,34 +9,53 @@ import torch
 import librosa
 import numpy as np
 import requests
-from pyannote.audio import Inference
 from pyannote.core import SlidingWindowFeature
 from scipy.spatial.distance import cosine, cdist
 from dotenv import load_dotenv, find_dotenv
 
-try:
-    from speechbrain.inference.classifiers import EncoderClassifier
-except ImportError:
-    from speechbrain.pretrained import EncoderClassifier
-# -----------------------------------------------------------------
-# Load the pyannote embedding model once globally
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-EMBED_MODEL = Inference("pyannote/embedding", device=DEVICE)
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# find and load your .env file
 load_dotenv(find_dotenv())
-HF_TOKEN = os.getenv("HF_TOKEN")
 
-ecapa = EncoderClassifier.from_hparams(
-    source="speechbrain/spkrec-ecapa-voxceleb",
-    run_opts={"device": device},
-)
+# -----------------------------------------------------------------
+# Lazy-loaded models — only initialised when speaker verification
+# is actually requested, so the worker starts without HF_TOKEN.
+# -----------------------------------------------------------------
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = DEVICE
+
+_EMBED_MODEL = None   # pyannote Inference
+_ECAPA = None         # speechbrain EncoderClassifier
+
+
+def _get_embed_model():
+    """Return (and cache) the pyannote embedding Inference model."""
+    global _EMBED_MODEL
+    if _EMBED_MODEL is None:
+        from pyannote.audio import Model, Inference
+        hf_token = os.getenv("HF_TOKEN")
+        raw = Model.from_pretrained("pyannote/embedding", use_auth_token=hf_token)
+        _EMBED_MODEL = Inference(raw, device=DEVICE)
+    return _EMBED_MODEL
+
+
+def _get_ecapa():
+    """Return (and cache) the SpeechBrain ECAPA encoder."""
+    global _ECAPA
+    if _ECAPA is None:
+        try:
+            from speechbrain.inference.classifiers import EncoderClassifier
+        except ImportError:
+            from speechbrain.pretrained import EncoderClassifier
+        _ECAPA = EncoderClassifier.from_hparams(
+            source="speechbrain/spkrec-ecapa-voxceleb",
+            run_opts={"device": device},
+        )
+    return _ECAPA
+
 
 def spk_embed(wave_16k_mono: np.ndarray) -> np.ndarray:
     """Return 192-D embedding for one mono waveform @16 kHz."""
     wav = torch.tensor(wave_16k_mono).unsqueeze(0).to(device)
-    return ecapa.encode_batch(wav).squeeze(0).cpu().numpy()
+    return _get_ecapa().encode_batch(wav).squeeze(0).cpu().numpy()
 # -----------------------------------------------------------------
 #  Select GPU when available, otherwise fall back to CPU once
 # ------------------------------------------------------------------
@@ -116,7 +135,7 @@ def load_known_speakers_from_samples(speaker_samples, huggingface_access_token=N
     known_embeddings = {}
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     try:
-        model = Inference("pyannote/embedding", device=device)
+        model = _get_embed_model()
     except Exception as e:
         logger.error(f"Failed to load pyannote embedding model: {e}", exc_info=True)
         return {}
@@ -239,8 +258,7 @@ def process_diarized_output(
         "timestamp": datetime.now().isoformat()
     }
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    embedder = Inference("pyannote/embedding", device=device)
+    embedder = _get_embed_model()
 
     segments = output.get("segments", [])
     if not segments:
@@ -335,7 +353,7 @@ def process_diarized_output(
 
 def embed_waveform(wav: np.ndarray, sr: int = 16000) -> np.ndarray:
     """Return a 512-dim L2-normalized embedding for a waveform."""
-    feat = EMBED_MODEL({"waveform": torch.tensor(wav).unsqueeze(0), "sample_rate": sr})
+    feat = _get_embed_model()({"waveform": torch.tensor(wav).unsqueeze(0), "sample_rate": sr})
     if hasattr(feat, "data"):
         arr = feat.data.mean(axis=0)
     else:
