@@ -1,8 +1,19 @@
-[![RunPod](https://api.runpod.io/badge/kodxana/whisperx-worker)](https://www.runpod.io/console/hub/kodxana/whisperx-worker)
+[![Runpod](https://api.runpod.io/badge/kodxana/whisperx-worker)](https://www.runpod.io/console/hub/kodxana/whisperx-worker)
 
-# WhisperX Worker for RunPod
+# WhisperX Worker for Runpod
 
-A serverless worker that provides high-quality speech transcription with timestamp alignment and speaker diarization using WhisperX on the RunPod platform.
+A serverless worker that provides high-quality speech transcription with timestamp alignment and speaker diarization using WhisperX on the Runpod platform.
+
+## Prerequisites
+
+Diarization and speaker verification require access to gated models on Hugging Face. You must accept the terms for each model before using those features:
+
+1. [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1) — required for diarization
+2. [pyannote/embedding](https://huggingface.co/pyannote/embedding) — required for speaker verification
+
+Set your Hugging Face token as the `HF_TOKEN` environment variable on your Runpod endpoint. The worker will use it automatically for diarization and speaker verification — no need to send it with every request.
+
+You can also pass `huggingface_access_token` per-request to override the env var.
 
 ## Features
 
@@ -10,15 +21,16 @@ A serverless worker that provides high-quality speech transcription with timesta
 - Automatic language detection
 - Word-level timestamp alignment
 - Speaker diarization (optional)
+- Base64 audio input (no need to host files)
 - Highly parallelized batch processing
 - Voice activity detection with configurable parameters
-- RunPod serverless compatibility
+- Runpod serverless compatibility
 
 ## Input Parameters
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `audio_file` | string | Yes | N/A | URL to the audio file for transcription |
+| `audio_file` | string | Yes | N/A | URL to the audio file, or base64-encoded audio data (optionally with data URI prefix) |
 | `language` | string | No | `null` | ISO code of the language spoken in the audio (e.g., 'en', 'fr'). If not specified, automatic detection will be performed |
 | `language_detection_min_prob` | float | No | `0` | Minimum probability threshold for language detection |
 | `language_detection_max_tries` | int | No | `5` | Maximum number of attempts for language detection |
@@ -29,7 +41,7 @@ A serverless worker that provides high-quality speech transcription with timesta
 | `vad_offset` | float | No | `0.363` | Voice Activity Detection offset threshold |
 | `align_output` | bool | No | `false` | Whether to align Whisper output for accurate word-level timestamps |
 | `diarization` | bool | No | `false` | Whether to assign speaker ID labels to segments |
-| `huggingface_access_token` | string | No* | `null` | HuggingFace token for diarization model access (*Required if diarization is enabled) |
+| `huggingface_access_token` | string | No | `null` | HuggingFace token for diarization. Overrides the `HF_TOKEN` env var if provided |
 | `min_speakers` | int | No | `null` | Minimum number of speakers (only applicable if diarization is enabled) |
 | `max_speakers` | int | No | `null` | Maximum number of speakers (only applicable if diarization is enabled) |
 | `debug` | bool | No | `false` | Whether to print compute/inference times and memory usage information |
@@ -46,6 +58,30 @@ A serverless worker that provides high-quality speech transcription with timesta
   }
 }
 ```
+
+### Base64 Audio Input
+
+You can send audio directly as base64-encoded data instead of a URL. This supports raw base64 or data URI format:
+
+```json
+{
+  "input": {
+    "audio_file": "data:audio/wav;base64,UklGRi..."
+  }
+}
+```
+
+Or without the data URI prefix:
+
+```json
+{
+  "input": {
+    "audio_file": "UklGRi..."
+  }
+}
+```
+
+Note: Runpod payload limits apply (20 MB for `/runsync`, 10 MB for `/run`). Compress audio to MP3/OGG before encoding for larger files.
 
 ### Transcription with Language Detection and Alignment
 
@@ -219,7 +255,7 @@ This project is licensed under the Apache License, Version 2.0. See the [LICENSE
 ## Acknowledgments
 
 - This project utilizes code from [WhisperX](https://github.com/m-bain/whisperX), licensed under the BSD-2-Clause license
-- Special thanks to the RunPod team for the serverless platform
+- Special thanks to the Runpod team for the serverless platform
 
 ## Contributing
 
