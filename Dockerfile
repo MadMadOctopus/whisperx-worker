@@ -1,10 +1,10 @@
-FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04
+FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-c"]
 WORKDIR /
 
-# System packages: Python 3.12, FFmpeg 6.1, utilities
+# System packages: Python 3.12, FFmpeg, utilities
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         python3 python3-pip python3-venv python3-dev \
