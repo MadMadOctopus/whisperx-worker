@@ -19,8 +19,8 @@ RUN mkdir -p /cache/models /root/.cache/torch
 COPY builder/requirements.txt /builder/requirements.txt
 
 # Install Python dependencies
-RUN python3 -m pip install --break-system-packages hf_transfer \
- && python3 -m pip install --break-system-packages --no-cache-dir -r /builder/requirements.txt
+RUN python3 -m pip install hf_transfer \
+ && python3 -m pip install --no-cache-dir -r /builder/requirements.txt
 
 # Copy the local VAD model to the expected location
 COPY models/whisperx-vad-segmentation.bin /root/.cache/torch/whisperx-vad-segmentation.bin
