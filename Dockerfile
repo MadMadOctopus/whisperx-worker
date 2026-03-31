@@ -19,7 +19,7 @@ RUN mkdir -p /cache/models /root/.cache/torch
 COPY builder/requirements.txt /builder/requirements.txt
 
 # Install Python dependencies
-RUN python3 -m pip install hf_transfer \
+RUN python3 -m pip install --upgrade pip \
  && python3 -m pip install --no-cache-dir -r /builder/requirements.txt
 
 # Copy the local VAD model to the expected location
